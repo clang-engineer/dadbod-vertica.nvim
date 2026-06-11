@@ -44,8 +44,8 @@ function! db#adapter#vertica#interactive(url, ...) abort
 endfunction
 
 function! db#adapter#vertica#filter(url) abort
-  return db#adapter#vertica#interactive(a:url,
-        \ ['--no-vsqlrc', '-P', 'columns=' . &columns, '-v', 'ON_ERROR_STOP=1'])
+  " vsql does not support '-P columns=N' (psql-only); '-X' replaces '--no-psqlrc'.
+  return db#adapter#vertica#interactive(a:url, ['-X', '-v', 'ON_ERROR_STOP=1'])
 endfunction
 
 function! db#adapter#vertica#input(url, in) abort
