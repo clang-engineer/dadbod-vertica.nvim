@@ -44,8 +44,16 @@ function! db#adapter#vertica#interactive(url, ...) abort
 endfunction
 
 function! db#adapter#vertica#filter(url) abort
-  " vsql does not support '-P columns=N' (psql-only); '-X' replaces '--no-psqlrc'.
-  return db#adapter#vertica#interactive(a:url, ['-X', '-v', 'ON_ERROR_STOP=1'])
+  " -X: skip vsqlrc / -q: quiet startup banner. vsql does not accept
+  " '-P columns=N' (psql-only) or '--no-psqlrc'.
+  let base = db#adapter#vertica#interactive(a:url, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'])
+  if !has('unix') || !get(g:, 'dadbod_vertica_suppress_notice', 1)
+    return base
+  endif
+  " Wrap so server-side license NOTICE (stderr) is discarded before dadbod
+  " captures output. $@ forwards every arg — base + dadbod-appended — to vsql
+  " without any client-side quoting.
+  return ['/bin/sh', '-c', '"$@" 2>/dev/null', 'dbvertica-sh'] + base
 endfunction
 
 function! db#adapter#vertica#input(url, in) abort
@@ -63,9 +71,14 @@ endfunction
 
 function! db#adapter#vertica#tables(url) abort
   let filter = s:user_schema_filter()
-  let query = "SELECT table_schema || '.' || table_name FROM v_catalog.tables WHERE " . filter
-        \ . " UNION ALL SELECT table_schema || '.' || table_name FROM v_catalog.views WHERE " . filter
+  " Prefix every data row with a marker so license/NOTICE banners that vsql
+  " emits to stdout get filtered out cleanly.
+  let marker = '__DBV_ROW__'
+  let query = "SELECT '" . marker . "' || table_schema || '.' || table_name FROM v_catalog.tables WHERE " . filter
+        \ . " UNION ALL SELECT '" . marker . "' || table_schema || '.' || table_name FROM v_catalog.views WHERE " . filter
         \ . " ORDER BY 1;"
-  return s:parse_rows(db#systemlist(
-        \ db#adapter#vertica#filter(a:url) + ['-tA', '-c', query]), 0)
+  let lines = db#systemlist(db#adapter#vertica#filter(a:url) + ['-tA', '-c', query])
+  let prefix_len = len(marker)
+  return map(filter(lines, 'strpart(v:val, 0, prefix_len) ==# marker'),
+        \ 'v:val[prefix_len :]')
 endfunction
