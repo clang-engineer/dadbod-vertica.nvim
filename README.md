@@ -18,6 +18,9 @@ Lets you connect to Vertica with the same URL-driven workflow you already use fo
 {
   "clang-engineer/dadbod-vertica.nvim",
   dependencies = { "tpope/vim-dadbod" },
+  -- ft alone is not enough: plugin/dadbod-vertica.vim registers dadbod-ui
+  -- table helpers and must source before the first DBUI open as well.
+  cmd = { "DB", "DBUI", "DBUIToggle", "DBUIAddConnection", "DBUIFindBuffer" },
   ft = { "sql", "mysql", "plsql" },
   -- optional: only needed if vsql is not on PATH
   opts = { vsql = "/opt/vertica/bin/vsql" },
@@ -105,11 +108,23 @@ URL credentials win over env vars.
 - **Linux**: install the Client Drivers `.rpm` or extract the `.tar` — `vsql` lands in `/opt/vertica/bin/vsql`
 - **Windows**: run the Client Drivers installer; `vsql.exe` is placed under `%PROGRAMFILES%\Vertica Systems\VSQL\bin`
 
+## Troubleshooting
+
+**Query result buffer is empty / SELECT shows nothing.** By default we wrap `vsql` so its server-side license NOTICE on stderr is discarded — but this also swallows real query errors. Flip the suppressor off to see what vsql is actually saying:
+
+```vim
+let g:dadbod_vertica_suppress_notice = 0
+```
+
+Re-run the query and the stderr message will land in the result buffer alongside the data.
+
 ## Limitations
 
 - Tab completion of database names is not implemented (Vertica clusters typically expose one database, so listing is rarely useful)
 - The `tables` introspection filters out the `v_catalog`, `v_monitor`, `v_internal`, `v_func`, `v_txtindex` system schemas — set `g:dadbod_vertica_include_system = 1` is **not** wired yet, open an issue if you need it
 - Password handling mirrors vim-dadbod's PostgreSQL adapter — passing on the command line is visible via `ps`
+- **dadbod-ui schema-tree integration is a monkey-patch.** vim-dadbod-ui's `s:schemas` dict is script-local with no public hook, so we override `db_ui#schemas#get` after snapshotting the existing entries. If vim-dadbod-ui adds a new scheme in a later release, this plugin won't expose it until updated — open an issue. Disable the monkey-patch with `let g:dadbod_vertica_disable_schema_tree = 1` (tables fall back to a flat list under the DB node)
+- **Windows NOTICE banner**: the stderr-suppression wrap only kicks in on Unix (`has('unix')`). On Windows the Vertica license NOTICE may surface inside result buffers
 
 ## Tested against
 

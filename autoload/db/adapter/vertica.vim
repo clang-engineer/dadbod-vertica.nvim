@@ -60,11 +60,6 @@ function! db#adapter#vertica#input(url, in) abort
   return db#adapter#vertica#filter(a:url) + ['-f', a:in]
 endfunction
 
-function! s:parse_rows(output, col) abort
-  let rows = map(copy(a:output), 'split(v:val, "|")')
-  return map(filter(rows, 'len(v:val) > a:col'), 'v:val[a:col]')
-endfunction
-
 function! s:user_schema_filter() abort
   return "table_schema NOT IN ('v_catalog', 'v_monitor', 'v_internal', 'v_func', 'v_txtindex')"
 endfunction
