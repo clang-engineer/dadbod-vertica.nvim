@@ -12,6 +12,15 @@ if exists('g:loaded_dadbod_vertica')
 endif
 let g:loaded_dadbod_vertica = 1
 
+" Single source of truth for the system schemas that introspection should
+" hide. The autoload adapter reads the same g: var so the two code paths
+" (schema-tree query + flat fallback) can't drift apart. Override or set to
+" [] from your config to widen/disable the filter.
+if !exists('g:dadbod_vertica_system_schemas')
+  let g:dadbod_vertica_system_schemas =
+        \ ['v_catalog', 'v_monitor', 'v_internal', 'v_func', 'v_txtindex']
+endif
+
 " ---------------------------------------------------------------------------
 " Table helpers
 " ---------------------------------------------------------------------------
@@ -58,7 +67,9 @@ if get(g:, 'dadbod_vertica_disable_schema_tree', 0)
   finish
 endif
 
-let s:sys_schemas = "'v_catalog','v_monitor','v_internal','v_func','v_txtindex'"
+let s:sys_schemas = empty(g:dadbod_vertica_system_schemas)
+      \ ? "''"
+      \ : "'" . join(g:dadbod_vertica_system_schemas, "','") . "'"
 
 " Mirrors vim-dadbod-ui's s:results_parser (script-local, can't reuse).
 function! s:results_parser(results, delimiter, min_len) abort
@@ -77,6 +88,8 @@ endfunction
 " callable=filter routes catalog queries through db#adapter#vertica#filter,
 " which carries the sh-wrap that swallows the Vertica license NOTICE on
 " stderr — without it the banner pollutes the result and breaks parsing.
+" parse_results: vsql with '-A -c' emits a header line first and an
+" '(N rows)' summary last, so [1:-2] strips both before tokenizing.
 let s:vertica_scheme = {
       \ 'callable': 'filter',
       \ 'args': ['-A', '-c'],

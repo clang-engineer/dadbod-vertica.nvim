@@ -30,6 +30,9 @@ function! s:base_command(url) abort
     let cmd += ['-U', parsed.user]
   endif
   if !empty(get(parsed, 'password', ''))
+    " vsql diverges from psql here: psql -w is --no-password (boolean), but
+    " vsql -w accepts the password as its value. Don't 'fix' this back to a
+    " psql-style flag.
     let cmd += ['-w', parsed.password]
   endif
   let path = get(parsed, 'path', '')
@@ -61,13 +64,23 @@ function! db#adapter#vertica#input(url, in) abort
 endfunction
 
 function! s:user_schema_filter() abort
-  return "table_schema NOT IN ('v_catalog', 'v_monitor', 'v_internal', 'v_func', 'v_txtindex')"
+  " Shares the system-schema list with plugin/dadbod-vertica.vim. The plugin
+  " file always sources at startup and sets the default, so this fallback
+  " only matters if a user loads the autoload adapter standalone.
+  let schemas = get(g:, 'dadbod_vertica_system_schemas',
+        \ ['v_catalog', 'v_monitor', 'v_internal', 'v_func', 'v_txtindex'])
+  if empty(schemas)
+    return '1=1'
+  endif
+  return "table_schema NOT IN ('" . join(schemas, "','") . "')"
 endfunction
 
 function! db#adapter#vertica#tables(url) abort
   let filter = s:user_schema_filter()
-  " Prefix every data row with a marker so license/NOTICE banners that vsql
-  " emits to stdout get filtered out cleanly.
+  " Belt-and-braces: db#adapter#vertica#filter already drops stderr and we
+  " pass -tA so vsql prints tuples only. But some vsql builds still flush a
+  " license/NOTICE line to stdout before the result set, so we prefix every
+  " data row with a marker and discard anything that doesn't match.
   let marker = '__DBV_ROW__'
   let query = "SELECT '" . marker . "' || table_schema || '.' || table_name FROM v_catalog.tables WHERE " . filter
         \ . " UNION ALL SELECT '" . marker . "' || table_schema || '.' || table_name FROM v_catalog.views WHERE " . filter

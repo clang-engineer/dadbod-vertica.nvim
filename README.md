@@ -18,10 +18,10 @@ Lets you connect to Vertica with the same URL-driven workflow you already use fo
 {
   "clang-engineer/dadbod-vertica.nvim",
   dependencies = { "tpope/vim-dadbod" },
-  -- ft alone is not enough: plugin/dadbod-vertica.vim registers dadbod-ui
-  -- table helpers and must source before the first DBUI open as well.
+  -- plugin/dadbod-vertica.vim registers dadbod-ui table helpers and patches
+  -- the schema tree, so it must source on every DBUI entry point — not just
+  -- the first SQL buffer.
   cmd = { "DB", "DBUI", "DBUIToggle", "DBUIAddConnection", "DBUIFindBuffer" },
-  ft = { "sql", "mysql", "plsql" },
   -- optional: only needed if vsql is not on PATH
   opts = { vsql = "/opt/vertica/bin/vsql" },
 }
@@ -104,9 +104,15 @@ URL credentials win over env vars.
 
 `vsql` is not on Homebrew. Download from the official [Vertica Client Drivers](https://www.vertica.com/download/vertica/client-drivers/) page (no signup required) and pick the right package for your OS:
 
-- **macOS**: `vsql-*.mac.dmg` — universal binary (x86_64 + arm64). Mount it and copy `opt/vertica/bin/vsql` onto your `$PATH` (e.g. `~/bin/`)
+- **macOS**: `vsql-*.mac.dmg` — universal binary (x86_64 + arm64). Mount it and copy `opt/vertica/bin/vsql` onto your `$PATH`. **`/usr/local/bin/` is safest** because it ships on the default macOS PATH; `~/bin/` works too, but only if your shell rc actually puts `~/bin` on `$PATH` (default zsh does not)
 - **Linux**: install the Client Drivers `.rpm` or extract the `.tar` — `vsql` lands in `/opt/vertica/bin/vsql`
 - **Windows**: run the Client Drivers installer; `vsql.exe` is placed under `%PROGRAMFILES%\Vertica Systems\VSQL\bin`
+
+Skip `$PATH` entirely by pointing the plugin straight at the binary:
+
+```lua
+opts = { vsql = "/opt/vertica/bin/vsql" }   -- or wherever you put it
+```
 
 ## Troubleshooting
 
@@ -121,7 +127,7 @@ Re-run the query and the stderr message will land in the result buffer alongside
 ## Limitations
 
 - Tab completion of database names is not implemented (Vertica clusters typically expose one database, so listing is rarely useful)
-- The `tables` introspection filters out the `v_catalog`, `v_monitor`, `v_internal`, `v_func`, `v_txtindex` system schemas — set `g:dadbod_vertica_include_system = 1` is **not** wired yet, open an issue if you need it
+- Schema introspection always hides the `v_catalog`, `v_monitor`, `v_internal`, `v_func`, `v_txtindex` system schemas. Override the list via `let g:dadbod_vertica_system_schemas = [...]` if you need a different exclude set (set it to `[]` to show everything)
 - Password handling mirrors vim-dadbod's PostgreSQL adapter — passing on the command line is visible via `ps`
 - **dadbod-ui schema-tree integration is a monkey-patch.** vim-dadbod-ui's `s:schemas` dict is script-local with no public hook, so we override `db_ui#schemas#get` after snapshotting the existing entries. If vim-dadbod-ui adds a new scheme in a later release, this plugin won't expose it until updated — open an issue. Disable the monkey-patch with `let g:dadbod_vertica_disable_schema_tree = 1` (tables fall back to a flat list under the DB node)
 - **Windows NOTICE banner**: the stderr-suppression wrap only kicks in on Unix (`has('unix')`). On Windows the Vertica license NOTICE may surface inside result buffers
