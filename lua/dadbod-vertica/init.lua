@@ -1,7 +1,10 @@
 local M = {}
 
 function M.setup(opts)
-  vim.g.dadbod_vertica_vsql = (opts or {}).vsql or "vsql"
+  opts = opts or {}
+  if opts.vsql ~= nil then
+    vim.g.dadbod_vertica_vsql = opts.vsql
+  end
 end
 
 return M
