@@ -124,6 +124,14 @@ let g:dadbod_vertica_suppress_notice = 0
 
 Re-run the query and the stderr message will land in the result buffer alongside the data.
 
+**Neovim freezes when the host is unreachable.** vim-dadbod runs `vsql` synchronously via `system()`, so a network-unreachable host blocks the UI thread until the TCP connect times out (~75s on macOS by default). vsql has no command-line connect-timeout flag, but you can shorten the wait in your shell rc:
+
+```sh
+export VSQL_LOGIN_TIMEOUT=5
+```
+
+(Honored by recent vsql builds; behavior is version-dependent.)
+
 ## Limitations
 
 - Tab completion of database names is not implemented (Vertica clusters typically expose one database, so listing is rarely useful)
