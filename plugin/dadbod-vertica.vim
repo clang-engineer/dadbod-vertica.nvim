@@ -13,9 +13,9 @@ endif
 let g:loaded_dadbod_vertica = 1
 
 " Single source of truth for the system schemas that introspection should
-" hide. The autoload adapter reads the same g: var so the two code paths
-" (schema-tree query + flat fallback) can't drift apart. Override or set to
-" [] from your config to widen/disable the filter.
+" hide. Both code paths (schema-tree query here + flat fallback in autoload)
+" read the same g: var at lookup time, so changing the list at runtime
+" updates both. Override or set to [] from your config to widen/disable.
 if !exists('g:dadbod_vertica_system_schemas')
   let g:dadbod_vertica_system_schemas =
         \ ['v_catalog', 'v_monitor', 'v_internal', 'v_func', 'v_txtindex']
@@ -67,10 +67,6 @@ if get(g:, 'dadbod_vertica_disable_schema_tree', 0)
   finish
 endif
 
-let s:sys_schemas = empty(g:dadbod_vertica_system_schemas)
-      \ ? "''"
-      \ : "'" . join(g:dadbod_vertica_system_schemas, "','") . "'"
-
 " Mirrors vim-dadbod-ui's s:results_parser (script-local, can't reuse).
 function! s:results_parser(results, delimiter, min_len) abort
   if a:min_len ==? 1
@@ -85,24 +81,35 @@ function! s:results_parser(results, delimiter, min_len) abort
   return filter(mapped, 'len(v:val) ==? '.min_len)
 endfunction
 
+function! s:sys_schemas_sql() abort
+  let schemas = get(g:, 'dadbod_vertica_system_schemas', [])
+  if empty(schemas)
+    return "''"
+  endif
+  return "'" . join(schemas, "','") . "'"
+endfunction
+
 " callable=filter routes catalog queries through db#adapter#vertica#filter,
 " which carries the sh-wrap that swallows the Vertica license NOTICE on
 " stderr — without it the banner pollutes the result and breaks parsing.
 " parse_results: vsql with '-A -c' emits a header line first and an
 " '(N rows)' summary last, so [1:-2] strips both before tokenizing.
-let s:vertica_scheme = {
-      \ 'callable': 'filter',
-      \ 'args': ['-A', '-c'],
-      \ 'schemes_query': "SELECT schema_name FROM v_catalog.schemata WHERE schema_name NOT IN (" . s:sys_schemas . ") ORDER BY schema_name",
-      \ 'schemes_tables_query':
-      \   "SELECT table_schema, table_name FROM v_catalog.tables WHERE table_schema NOT IN (" . s:sys_schemas . ")"
-      \   . " UNION ALL"
-      \   . " SELECT table_schema, table_name FROM v_catalog.views WHERE table_schema NOT IN (" . s:sys_schemas . ")"
-      \   . " ORDER BY 1, 2",
-      \ 'parse_results': {results, min_len -> s:results_parser(filter(results, '!empty(v:val)')[1:-2], '|', min_len)},
-      \ 'default_scheme': '',
-      \ 'quote': 1,
-      \ }
+function! s:build_vertica_scheme() abort
+  let sys = s:sys_schemas_sql()
+  return {
+        \ 'callable': 'filter',
+        \ 'args': ['-A', '-c'],
+        \ 'schemes_query': "SELECT schema_name FROM v_catalog.schemata WHERE schema_name NOT IN (" . sys . ") ORDER BY schema_name",
+        \ 'schemes_tables_query':
+        \   "SELECT table_schema, table_name FROM v_catalog.tables WHERE table_schema NOT IN (" . sys . ")"
+        \   . " UNION ALL"
+        \   . " SELECT table_schema, table_name FROM v_catalog.views WHERE table_schema NOT IN (" . sys . ")"
+        \   . " ORDER BY 1, 2",
+        \ 'parse_results': {results, min_len -> s:results_parser(filter(results, '!empty(v:val)')[1:-2], '|', min_len)},
+        \ 'default_scheme': '',
+        \ 'quote': 1,
+        \ }
+endfunction
 
 function! s:inject_vertica_schema() abort
   if exists('s:schemes_cache')
@@ -123,9 +130,13 @@ function! s:inject_vertica_schema() abort
       let s:schemes_cache[scheme] = entry
     endif
   endfor
-  let s:schemes_cache.vertica = s:vertica_scheme
 
+  " Vertica is rebuilt on every lookup so g:dadbod_vertica_system_schemas
+  " changes at runtime stay in sync with the autoload fallback path.
   function! db_ui#schemas#get(scheme) abort
+    if a:scheme ==# 'vertica'
+      return s:build_vertica_scheme()
+    endif
     return get(s:schemes_cache, a:scheme, {})
   endfunction
 endfunction
